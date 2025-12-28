@@ -1,6 +1,6 @@
 'use client';
 
-import { createChart, IChartApi, LineSeries } from 'lightweight-charts';
+import { createChart, IChartApi } from 'lightweight-charts';
 import { useEffect, useRef } from 'react';
 
 interface ChartWrapperProps {
@@ -49,14 +49,6 @@ export default function ChartWrapper({ onChartReady }: ChartWrapperProps) {
       rightPriceScale: {
         borderColor: '#4B5563',
       },
-      watermark: {
-        visible: true,
-        fontSize: 48,
-        horzAlign: 'center',
-        vertAlign: 'center',
-        color: '#1F2937',
-        text: 'TradingView Pro',
-      },
     });
 
     chartRef.current = chart;
@@ -83,5 +75,5 @@ export default function ChartWrapper({ onChartReady }: ChartWrapperProps) {
     };
   }, [onChartReady]);
 
-  return <div ref={chartContainerRef} className="w-full" />;
+  return <div ref={chartContainerRef} className="w-full h-full" />;
 }

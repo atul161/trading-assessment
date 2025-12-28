@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 
 const ChartWrapper = dynamic(() => import('./ChartWrapper'), {
@@ -20,6 +20,8 @@ export default function TradingChart() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [priceChange, setPriceChange] = useState<number>(0);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [fullData, setFullData] = useState<any[]>([]);
 
   const handleChartReady = useCallback(async (chartInstance: any) => {
     setChart(chartInstance);
@@ -30,6 +32,9 @@ export default function TradingChart() {
       
       const response = await fetch('http://localhost:8000/api/market-data');
       const data = await response.json();
+      
+      // Store full data for freemium logic
+      setFullData(data);
       
       // Create three line series using the correct API
       const priceSeries = chartInstance.addSeries(LineSeries, {
@@ -50,20 +55,23 @@ export default function TradingChart() {
         title: 'SMA 10',
       });
 
+      // Apply freemium logic - show only first 80 points if not subscribed
+      const displayData = isSubscribed ? data : data.slice(0, 80);
+      
       // Transform data for chart
-      const priceData = data.map((d: any, i: number) => ({
+      const priceData = displayData.map((d: any, i: number) => ({
         time: i,
         value: d.price,
       }));
 
-      const sma5Data = data
+      const sma5Data = displayData
         .map((d: any, i: number) => ({
           time: i,
           value: d.sma_5,
         }))
         .filter((d: any) => d.value !== null);
 
-      const sma10Data = data
+      const sma10Data = displayData
         .map((d: any, i: number) => ({
           time: i,
           value: d.sma_10,
@@ -76,7 +84,7 @@ export default function TradingChart() {
       sma10Series.setData(sma10Data);
 
       // Add color zones based on ribbon_color
-      const markers = data
+      const markers = displayData
         .map((d: any, i: number) => ({
           time: i,
           position: 'inBar' as const,
@@ -91,9 +99,9 @@ export default function TradingChart() {
       }
 
       // Set current price and calculate change
-      if (data.length > 0) {
-        const lastPrice = data[data.length - 1].price;
-        const firstPrice = data[0].price;
+      if (displayData.length > 0) {
+        const lastPrice = displayData[displayData.length - 1].price;
+        const firstPrice = displayData[0].price;
         setCurrentPrice(lastPrice);
         setPriceChange(((lastPrice - firstPrice) / firstPrice) * 100);
       }
@@ -105,6 +113,116 @@ export default function TradingChart() {
       setIsLoading(false);
     }
   }, []);
+
+  // Function to update chart data when subscription status changes
+  const updateChartData = useCallback(async () => {
+    if (!chart || fullData.length === 0) return;
+
+    try {
+      const { LineSeries } = await import('lightweight-charts');
+      
+      // Apply freemium logic - show only first 80 points if not subscribed
+      const displayData = isSubscribed ? fullData : fullData.slice(0, 80);
+      
+      // Transform data for chart
+      const priceData = displayData.map((d: any, i: number) => ({
+        time: i,
+        value: d.price,
+      }));
+
+      const sma5Data = displayData
+        .map((d: any, i: number) => ({
+          time: i,
+          value: d.sma_5,
+        }))
+        .filter((d: any) => d.value !== null);
+
+      const sma10Data = displayData
+        .map((d: any, i: number) => ({
+          time: i,
+          value: d.sma_10,
+        }))
+        .filter((d: any) => d.value !== null);
+
+      // Get existing series
+      const series = chart.options();
+      const allSeries = [];
+      chart.removeSeries = chart.removeSeries || (() => {});
+      
+      // Clear existing series
+      try {
+        const existingSeries = chart.__series || [];
+        existingSeries.forEach((s: any) => {
+          chart.removeSeries(s);
+        });
+      } catch (e) {
+        // Fallback: create new series
+      }
+
+      // Create new series
+      const priceSeries = chart.addSeries(LineSeries, {
+        color: '#00D4FF',
+        lineWidth: 3,
+        title: 'Price',
+      });
+
+      const sma5Series = chart.addSeries(LineSeries, {
+        color: '#FF6B35',
+        lineWidth: 2,
+        title: 'SMA 5',
+      });
+
+      const sma10Series = chart.addSeries(LineSeries, {
+        color: '#7C3AED',
+        lineWidth: 2,
+        title: 'SMA 10',
+      });
+
+      // Set new data
+      priceSeries.setData(priceData);
+      sma5Series.setData(sma5Data);
+      sma10Series.setData(sma10Data);
+
+      // Add color zones
+      const markers = displayData
+        .map((d: any, i: number) => ({
+          time: i,
+          position: 'inBar' as const,
+          color: d.ribbon_color === '#0ebb23' ? '#10B98150' : '#EF444450',
+          shape: 'square' as const,
+          ribbonColor: d.ribbon_color
+        }))
+        .filter((m: any) => m.ribbonColor !== null);
+
+      if (markers.length > 0) {
+        priceSeries.setMarkers(markers);
+      }
+
+      // Update price display
+      if (displayData.length > 0) {
+        const lastPrice = displayData[displayData.length - 1].price;
+        const firstPrice = displayData[0].price;
+        setCurrentPrice(lastPrice);
+        setPriceChange(((lastPrice - firstPrice) / firstPrice) * 100);
+      }
+
+      chart.timeScale().fitContent();
+    } catch (err) {
+      console.error('Error updating chart data:', err);
+    }
+  }, [chart, fullData, isSubscribed]);
+
+  // Update chart when subscription status changes
+  React.useEffect(() => {
+    if (chart && fullData.length > 0) {
+      updateChartData();
+    }
+  }, [isSubscribed, updateChartData]);
+
+  // Function to simulate payment
+  const handleSimulatePayment = () => {
+    setIsSubscribed(true);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-black">
@@ -165,7 +283,50 @@ export default function TradingChart() {
                 </div>
               </div>
               <div className="p-6">
-                <ChartWrapper onChartReady={handleChartReady} />
+                <div className="relative w-full h-[600px]">
+                  <ChartWrapper onChartReady={handleChartReady} />
+                  
+                  {/* Freemium Overlay - Glass Effect */}
+                  {!isSubscribed && (
+                    <div className="absolute top-0 right-0 w-1/3 h-full backdrop-blur-md bg-gradient-to-l from-gray-900/40 via-gray-800/30 to-transparent border-l border-white/20 shadow-2xl flex flex-col items-center justify-center z-10">
+                      {/* Glass card */}
+                      <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-xl p-6 m-4 max-w-xs">
+                        <div className="text-center">
+                          {/* Icon with glass effect */}
+                          <div className="w-16 h-16 bg-gradient-to-br from-yellow-400/80 to-orange-500/80 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-4 border border-white/30 shadow-lg">
+                            <svg className="w-8 h-8 text-white drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                            </svg>
+                          </div>
+                          
+                          <h3 className="text-xl font-bold text-white mb-3 drop-shadow-lg">Premium Data</h3>
+                          <p className="text-gray-200 text-sm mb-6 leading-relaxed drop-shadow-md">
+                            The latest 20 data points are locked.<br/>
+                            <span className="text-yellow-300">Upgrade to unlock real-time insights.</span>
+                          </p>
+                          
+                          <button
+                            onClick={handleSimulatePayment}
+                            className="w-full bg-gradient-to-r from-yellow-400/90 to-orange-500/90 backdrop-blur-sm hover:from-yellow-300 hover:to-orange-400 text-white font-semibold py-3 px-6 rounded-xl border border-white/30 transform hover:scale-105 hover:-translate-y-1 transition-all duration-300 shadow-xl hover:shadow-2xl"
+                          >
+                            <span className="flex items-center justify-center space-x-2">
+                              <span>🚀</span>
+                              <span>Subscribe to Unlock</span>
+                            </span>
+                          </button>
+                          
+                          <p className="text-xs text-gray-300 mt-3 opacity-75">
+                            Click to simulate payment
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Decorative elements */}
+                      <div className="absolute top-4 right-4 w-2 h-2 bg-yellow-400/50 rounded-full animate-pulse"></div>
+                      <div className="absolute bottom-8 right-8 w-1 h-1 bg-orange-400/50 rounded-full animate-ping"></div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -215,6 +376,36 @@ export default function TradingChart() {
                 </div>
               </div>
             </div>
+
+            {/* Subscription Status */}
+            {!isSubscribed && (
+              <div className="bg-gradient-to-br from-yellow-900/50 to-orange-900/50 backdrop-blur-sm rounded-xl border border-yellow-500/30 p-6">
+                <h3 className="text-lg font-semibold text-white mb-2">🔒 Premium Features</h3>
+                <p className="text-gray-300 text-sm mb-4">
+                  Unlock the latest 20 data points and get real-time market insights.
+                </p>
+                <button 
+                  onClick={handleSimulatePayment}
+                  className="w-full bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-400 hover:to-orange-500 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105"
+                >
+                  Simulate Payment
+                </button>
+              </div>
+            )}
+
+            {/* Subscription Confirmed */}
+            {isSubscribed && (
+              <div className="bg-gradient-to-br from-green-900/50 to-emerald-900/50 backdrop-blur-sm rounded-xl border border-green-500/30 p-6">
+                <h3 className="text-lg font-semibold text-white mb-2">✅ Premium Active</h3>
+                <p className="text-gray-300 text-sm mb-4">
+                  You now have access to all 100 data points and real-time updates.
+                </p>
+                <div className="flex items-center space-x-2 text-green-400">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                  <span className="text-sm font-medium">Live Data Active</span>
+                </div>
+              </div>
+            )}
 
             {/* Quick Actions */}
             <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl border border-gray-800 p-6">
